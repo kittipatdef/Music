@@ -5,6 +5,7 @@ import '../models/song_item.dart';
 import '../services/audio_handler.dart';
 import '../services/file_picker_service.dart';
 import '../services/lyrics_parser.dart';
+import '../widgets/download_dialog.dart';
 
 class PlayerScreen extends StatefulWidget {
   final MyAudioHandler audioHandler;
@@ -203,6 +204,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         centerTitle: true,
         actions: [
           IconButton(
+            icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8)),
+            tooltip: 'ดาวน์โหลดจากลิงก์ YouTube / Spotify',
+            onPressed: () => DownloadDialog.show(context, widget.audioHandler),
+          ),
+          IconButton(
             icon: const Icon(Icons.playlist_play_rounded, color: Colors.white, size: 28),
             tooltip: 'รายการคิวเพลง',
             onPressed: () => _showPlaylistModal(context),
@@ -286,6 +292,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
               backgroundColor: const Color(0xFF4F46E5),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => DownloadDialog.show(context, widget.audioHandler),
+            icon: const Icon(Icons.link_rounded, size: 20),
+            label: const Text('ดาวน์โหลดจากลิงก์ YouTube / Spotify'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF818CF8),
+              side: const BorderSide(color: Color(0xFF4338CA)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
@@ -684,14 +702,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           color: Colors.white,
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _handleImportSongs();
-                        },
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('เพิ่มเพลง'),
-                        style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8), size: 22),
+                            tooltip: 'ดาวน์โหลดจากลิงก์',
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              DownloadDialog.show(context, widget.audioHandler);
+                            },
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _handleImportSongs();
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('เพิ่มเพลง'),
+                            style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
+                          ),
+                        ],
                       ),
                     ],
                   ),

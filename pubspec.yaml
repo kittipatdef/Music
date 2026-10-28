@@ -18,10 +18,13 @@ dependencies:
   # File Handling & Permissions
   file_picker: ^13.3.0
   permission_handler: ^11.3.1
+  path_provider: ^2.1.2
+  http: ^1.2.0
 
   # UI Utilities
   cupertino_icons: ^1.0.6
   shared_preferences: ^2.5.6
+  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
