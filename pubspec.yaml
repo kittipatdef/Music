@@ -1,0 +1,34 @@
+name: personal_offline_music_player
+description: "A personal offline music player with synced LRC lyrics and Android background playback support."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio & Background Playback
+  just_audio: ^0.9.36
+  audio_service: ^0.18.12
+  rxdart: ^0.27.7
+
+  # File Handling & Permissions
+  file_picker: ^13.3.0
+  permission_handler: ^11.3.1
+
+  # UI Utilities
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+dependency_overrides:
+  path_provider_android: 2.2.15
+
+flutter:
+  uses-material-design: true
