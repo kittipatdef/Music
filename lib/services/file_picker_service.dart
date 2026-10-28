@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/lyric_entry.dart';
 import '../models/song_item.dart';
+import 'id3_parser.dart';
 import 'lyrics_parser.dart';
 
 /// Service สำหรับขอสิทธิ์ และเลือกไฟล์เสียง/ไฟล์เนื้อเพลงจากเครื่อง
@@ -64,6 +65,8 @@ class FilePickerService {
         lyrics = await LyricsParser.parseFile(autoLrcPath);
       }
 
+      final coverArt = await Id3Parser.extractCoverArt(audioPath);
+
       songs.add(
         SongItem(
           id: audioPath,
@@ -72,6 +75,7 @@ class FilePickerService {
           audioPath: audioPath,
           lrcPath: matchedLrcPath,
           lyrics: lyrics,
+          coverArt: coverArt,
         ),
       );
     }

@@ -21,14 +21,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isUserScrollingLyrics = false;
   Timer? _resumeAutoScrollTimer;
 
-  // ค่าความสูงโดยประมาณของแต่ละบรรทัดเนื้อเพลง (ใช้สำหรับคำนวณ Auto-scroll ให้นุ่มนวล)
   static const double _lyricItemHeight = 56.0;
 
   @override
   void initState() {
     super.initState();
 
-    // ติดตามตำแหน่งเวลาปัจจุบันเพื่อไฮไลต์และเลื่อนเนื้อเพลง
     widget.audioHandler.positionStream.listen((position) {
       final currentSong = widget.audioHandler.currentSong;
       if (currentSong == null || currentSong.lyrics.isEmpty) return;
@@ -52,15 +50,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
-  /// คำนวณและเลื่อนหน้าจอไปยังตำแหน่งบรรทัดเนื้อเพลงปัจจุบันให้อยู่กึ่งกลาง
   void _scrollToActiveLyric(int index) {
     if (_isUserScrollingLyrics || !_lyricScrollController.hasClients || index < 0) {
       return;
     }
 
     final viewportHeight = _lyricScrollController.position.viewportDimension;
-    // คำนวณให้อยู่กึ่งกลางหน้าจอ (Center Alignment)
-    final targetOffset = (index * _lyricItemHeight) - (viewportHeight / 2) + (_lyricItemHeight / 2);
+    final targetOffset =
+        (index * _lyricItemHeight) - (viewportHeight / 2) + (_lyricItemHeight / 2);
 
     final clampedOffset = targetOffset.clamp(
       0.0,
@@ -74,7 +71,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  /// ปิดการ auto-scroll ชั่วคราวเมื่อผู้ใช้กำลังปัดอ่านเนื้อเพลงด้วยตัวเอง
   void _onUserStartScroll() {
     _isUserScrollingLyrics = true;
     _resumeAutoScrollTimer?.cancel();
@@ -88,15 +84,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  /// เลือกไฟล์เพลงจาก Local Storage
   Future<void> _handleImportSongs() async {
     final songs = await FilePickerService.pickAudioFiles();
     if (songs.isNotEmpty) {
-      widget.audioHandler.setPlaylist(songs);
+      if (widget.audioHandler.playlist.isEmpty) {
+        widget.audioHandler.setPlaylist(songs);
+      } else {
+        widget.audioHandler.addSongs(songs);
+      }
     }
   }
 
-  /// เลือกไฟล์ .lrc เพื่อนำมาผูกกับเพลงที่กำลังเล่นอยู่
   Future<void> _handleImportLrc(SongItem song) async {
     final path = await FilePickerService.pickLrcFile();
     if (path != null) {
@@ -114,6 +112,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _showSleepTimerDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF181822),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.timer_outlined, color: Color(0xFF818CF8)),
+              SizedBox(width: 10),
+              Text('ตั้งเวลาปิดเพลง (Sleep Timer)', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildTimerOption(ctx, '15 นาที', 15),
+              _buildTimerOption(ctx, '30 นาที', 30),
+              _buildTimerOption(ctx, '45 นาที', 45),
+              _buildTimerOption(ctx, '60 นาที (1 ชั่วโมง)', 60),
+              const Divider(color: Color(0xFF2E2E3A)),
+              ListTile(
+                leading: const Icon(Icons.timer_off_outlined, color: Colors.redAccent),
+                title: const Text('ปิดการตั้งเวลา', style: TextStyle(color: Colors.redAccent)),
+                onTap: () {
+                  widget.audioHandler.cancelSleepTimer();
+                  Navigator.pop(ctx);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTimerOption(BuildContext context, String title, int minutes) {
+    return ListTile(
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF64748B)),
+      onTap: () {
+        widget.audioHandler.setSleepTimer(minutes);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ตั้งเวลาปิดเพลงใน $title'),
+            backgroundColor: const Color(0xFF1E293B),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -121,11 +173,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: StreamBuilder<int?>(
+          stream: widget.audioHandler.sleepTimerStream,
+          builder: (context, timerSnap) {
+            final remaining = timerSnap.data;
+            final isActive = remaining != null;
+            return IconButton(
+              icon: Icon(
+                isActive ? Icons.timer_rounded : Icons.timer_outlined,
+                color: isActive ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                size: 22,
+              ),
+              tooltip: isActive
+                  ? 'เหลือเวลา ${_formatSeconds(remaining)}'
+                  : 'ตั้งเวลาปิดเพลง',
+              onPressed: () => _showSleepTimerDialog(context),
+            );
+          },
+        ),
         title: const Text(
           'OFFLINE PLAYER',
           style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
             letterSpacing: 2.0,
             color: Color(0xFF94A3B8),
           ),
@@ -155,15 +225,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
           return Column(
             children: [
-              const SizedBox(height: 12),
-              // ข้อมูลเพลง
+              const SizedBox(height: 8),
               _buildSongInfo(song),
-              const SizedBox(height: 16),
-              // พื้นที่แสดงเนื้อเพลง Synced Lyrics
+              const SizedBox(height: 12),
               Expanded(
                 child: _buildLyricsView(song),
               ),
-              // แผงควบคุมเวลาและปุ่มเล่นเพลง
               _buildPlayerControls(song),
             ],
           );
@@ -230,28 +297,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _buildSongInfo(SongItem song) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
+      child: Row(
         children: [
-          Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: 0.2,
+          // รูปปกอัลบั้ม (ID3 Album Art หรือ Default Icon)
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: const Color(0xFF1E1E28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              image: song.coverArt != null
+                  ? DecorationImage(
+                      image: MemoryImage(song.coverArt!),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
+            child: song.coverArt == null
+                ? const Icon(Icons.music_note_rounded, color: Color(0xFF6366F1), size: 28)
+                : null,
           ),
-          const SizedBox(height: 4),
-          Text(
-            song.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF94A3B8),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -295,7 +394,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return false;
       },
       child: ShaderMask(
-        // Effect ขอบเบลอ Fade Out ด้านบนและด้านล่าง เพิ่มความรู้สึกแบบ Minimalistic Modern
         shaderCallback: (rect) {
           return const LinearGradient(
             begin: Alignment.topCenter,
@@ -315,7 +413,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
             return InkWell(
               onTap: () {
-                // กดที่บรรทัดเนื้อเพลงเพื่อกรอ (Seek) ไปยังท่อนนั้นได้ทันที!
                 widget.audioHandler.seek(entry.timestamp);
               },
               borderRadius: BorderRadius.circular(8),
@@ -353,7 +450,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildPlayerControls(SongItem song) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
       decoration: const BoxDecoration(
         color: Color(0xFF121218),
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -363,7 +460,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 12),
             // Slider แสดงเวลาเพลง
             StreamBuilder<Duration>(
               stream: widget.audioHandler.positionStream,
@@ -373,7 +469,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 final maxSeconds = duration.inMilliseconds > 0
                     ? duration.inMilliseconds.toDouble()
                     : 1.0;
-                final currentSeconds = position.inMilliseconds.toDouble().clamp(0.0, maxSeconds);
+                final currentSeconds =
+                    position.inMilliseconds.toDouble().clamp(0.0, maxSeconds);
 
                 return Column(
                   children: [
@@ -395,17 +492,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             _formatDuration(position),
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                           ),
                           Text(
                             _formatDuration(duration),
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                           ),
                         ],
                       ),
@@ -415,9 +512,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
               },
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
-            // ปุ่มควบคุม Previous, Play/Pause, Next
+            // แผงปุ่มควบคุม: Shuffle, Previous, Play/Pause, Next, Repeat
             StreamBuilder<PlayerState>(
               stream: widget.audioHandler.playerStateStream,
               builder: (context, stateSnapshot) {
@@ -428,16 +525,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     playerState?.processingState == ProcessingState.buffering;
 
                 return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Previous
+                    // ปุ่มสุ่มเพลง (Shuffle)
+                    StreamBuilder<bool>(
+                      stream: widget.audioHandler.isShuffleStream,
+                      builder: (context, snap) {
+                        final isShuffle = snap.data ?? false;
+                        return IconButton(
+                          icon: Icon(
+                            Icons.shuffle_rounded,
+                            color: isShuffle ? const Color(0xFF818CF8) : const Color(0xFF475569),
+                            size: 22,
+                          ),
+                          tooltip: isShuffle ? 'สุ่มเพลง: เปิด' : 'สุ่มเพลง: ปิด',
+                          onPressed: () => widget.audioHandler.toggleShuffle(),
+                        );
+                      },
+                    ),
+
+                    // ปุ่มเพลงก่อนหน้า (Previous)
                     IconButton(
-                      iconSize: 36,
+                      iconSize: 32,
                       icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
                       onPressed: () => widget.audioHandler.skipToPrevious(),
                     ),
-                    const SizedBox(width: 24),
-                    // Play/Pause Main Button
+
+                    // ปุ่ม Play/Pause กลางเด่น
                     GestureDetector(
                       onTap: () {
                         if (isPlaying) {
@@ -447,8 +561,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         }
                       },
                       child: Container(
-                        width: 64,
-                        height: 64,
+                        width: 60,
+                        height: 60,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: const LinearGradient(
@@ -467,8 +581,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         child: Center(
                           child: isProcessing
                               ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
+                                  width: 22,
+                                  height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
                                     color: Colors.white,
@@ -476,24 +590,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 )
                               : Icon(
                                   isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                  size: 38,
+                                  size: 34,
                                   color: Colors.white,
                                 ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 24),
-                    // Next
+
+                    // ปุ่มเพลงถัดไป (Next)
                     IconButton(
-                      iconSize: 36,
+                      iconSize: 32,
                       icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
                       onPressed: () => widget.audioHandler.skipToNext(),
+                    ),
+
+                    // ปุ่มวนซ้ำ (Repeat Mode)
+                    StreamBuilder<LoopModeType>(
+                      stream: widget.audioHandler.loopModeStream,
+                      builder: (context, snap) {
+                        final mode = snap.data ?? LoopModeType.all;
+                        IconData icon;
+                        Color color;
+                        String tip;
+                        switch (mode) {
+                          case LoopModeType.all:
+                            icon = Icons.repeat_rounded;
+                            color = const Color(0xFF818CF8);
+                            tip = 'วนซ้ำทั้งคิว';
+                            break;
+                          case LoopModeType.one:
+                            icon = Icons.repeat_one_rounded;
+                            color = const Color(0xFF818CF8);
+                            tip = 'วนซ้ำเพลงเดิม';
+                            break;
+                          case LoopModeType.off:
+                            icon = Icons.repeat_rounded;
+                            color = const Color(0xFF475569);
+                            tip = 'ไม่วนซ้ำ';
+                            break;
+                        }
+                        return IconButton(
+                          icon: Icon(icon, color: color, size: 22),
+                          tooltip: tip,
+                          onPressed: () => widget.audioHandler.toggleRepeatMode(),
+                        );
+                      },
                     ),
                   ],
                 );
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
           ],
         ),
       ),
@@ -553,7 +700,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 Expanded(
                   child: playlist.isEmpty
                       ? const Center(
-                          child: Text('ไม่มีเพลงในรายการ', style: TextStyle(color: Color(0xFF64748B))),
+                          child: Text('ไม่มีเพลงในรายการ',
+                              style: TextStyle(color: Color(0xFF64748B))),
                         )
                       : ListView.builder(
                           itemCount: playlist.length,
@@ -561,36 +709,75 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             final item = playlist[idx];
                             final isPlayingThis = widget.audioHandler.currentIndex == idx;
 
-                            return ListTile(
-                              leading: Icon(
-                                isPlayingThis ? Icons.volume_up_rounded : Icons.music_note_rounded,
-                                color: isPlayingThis ? const Color(0xFF6366F1) : const Color(0xFF475569),
+                            return Dismissible(
+                              key: Key(item.id + idx.toString()),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                color: Colors.red.withValues(alpha: 0.8),
+                                child: const Icon(Icons.delete_outline, color: Colors.white),
                               ),
-                              title: Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: isPlayingThis ? FontWeight.bold : FontWeight.normal,
-                                  color: isPlayingThis ? const Color(0xFF818CF8) : Colors.white,
-                                ),
-                              ),
-                              subtitle: Text(
-                                item.lyrics.isNotEmpty ? '✓ มีเนื้อเพลง' : 'ไม่มีเนื้อเพลง',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: item.lyrics.isNotEmpty ? const Color(0xFF10B981) : const Color(0xFF64748B),
-                                ),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B)),
-                                onPressed: () => _handleImportLrc(item),
-                                tooltip: 'เพิ่มไฟล์ .lrc ให้เพลงนี้',
-                              ),
-                              onTap: () {
-                                widget.audioHandler.playSongAtIndex(idx);
-                                Navigator.pop(ctx);
+                              onDismissed: (_) {
+                                widget.audioHandler.removeSongAtIndex(idx);
                               },
+                              child: ListTile(
+                                leading: Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    color: const Color(0xFF1E1E28),
+                                    image: item.coverArt != null
+                                        ? DecorationImage(
+                                            image: MemoryImage(item.coverArt!),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
+                                  ),
+                                  child: item.coverArt == null
+                                      ? Icon(
+                                          isPlayingThis
+                                              ? Icons.volume_up_rounded
+                                              : Icons.music_note_rounded,
+                                          color: isPlayingThis
+                                              ? const Color(0xFF6366F1)
+                                              : const Color(0xFF475569),
+                                          size: 20,
+                                        )
+                                      : null,
+                                ),
+                                title: Text(
+                                  item.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight:
+                                        isPlayingThis ? FontWeight.bold : FontWeight.normal,
+                                    color:
+                                        isPlayingThis ? const Color(0xFF818CF8) : Colors.white,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  item.lyrics.isNotEmpty ? '✓ มีเนื้อเพลง' : 'ไม่มีเนื้อเพลง',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: item.lyrics.isNotEmpty
+                                        ? const Color(0xFF10B981)
+                                        : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.more_vert_rounded,
+                                      color: Color(0xFF64748B)),
+                                  onPressed: () => _handleImportLrc(item),
+                                  tooltip: 'เพิ่มไฟล์ .lrc ให้เพลงนี้',
+                                ),
+                                onTap: () {
+                                  widget.audioHandler.playSongAtIndex(idx);
+                                  Navigator.pop(ctx);
+                                },
+                              ),
                             );
                           },
                         ),
@@ -606,6 +793,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  String _formatSeconds(int totalSeconds) {
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
   }
 }

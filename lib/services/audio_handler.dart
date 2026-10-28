@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 import '../models/song_item.dart';
+import 'playlist_storage_service.dart';
+
+enum LoopModeType { off, all, one }
 
 /// Service จัดการเครื่องเล่นเสียงเบื้องหลัง (Background Audio Handler)
 /// เชื่อมต่อกับ Android Foreground Service และ Lock Screen Controls
@@ -21,11 +25,30 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
   Stream<SongItem?> get currentSongStream => _currentSongSubject.stream;
   SongItem? get currentSong => _currentSongSubject.value;
 
+  // โหมดสุ่มเพลง (Shuffle Mode)
+  final BehaviorSubject<bool> _isShuffleSubject =
+      BehaviorSubject<bool>.seeded(false);
+  Stream<bool> get isShuffleStream => _isShuffleSubject.stream;
+  bool get isShuffle => _isShuffleSubject.value;
+
+  // โหมดเล่นซ้ำ (Repeat / Loop Mode: off, all, one)
+  final BehaviorSubject<LoopModeType> _loopModeSubject =
+      BehaviorSubject<LoopModeType>.seeded(LoopModeType.all);
+  Stream<LoopModeType> get loopModeStream => _loopModeSubject.stream;
+  LoopModeType get loopMode => _loopModeSubject.value;
+
+  // Sleep Timer (เวลานับถอยหลังเป็นวินาที)
+  final BehaviorSubject<int?> _sleepTimerRemainingSubject =
+      BehaviorSubject<int?>.seeded(null);
+  Stream<int?> get sleepTimerStream => _sleepTimerRemainingSubject.stream;
+  Timer? _sleepCountdownTimer;
+
   int _currentIndex = -1;
   int get currentIndex => _currentIndex;
 
   MyAudioHandler() {
     _initAudioPlayer();
+    _loadSavedPlaylistOnStartup();
   }
 
   void _initAudioPlayer() {
@@ -62,10 +85,10 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
       );
     });
 
-    // 2. จัดการเมื่อเพลงเล่นจบ (Auto-play เพลงถัดไป)
+    // 2. จัดการเมื่อเพลงเล่นจบ (Auto-play เพลงถัดไปตามโหมด Loop/Shuffle)
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
-        skipToNext();
+        _handleTrackCompletion();
       }
     });
 
@@ -79,12 +102,102 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     });
   }
 
+  /// โหลดเพลงที่เคยบันทึกไว้ในเครื่องขึ้นมาเมื่อเปิดแอป
+  Future<void> _loadSavedPlaylistOnStartup() async {
+    final saved = await PlaylistStorageService.loadPlaylist();
+    if (saved.isNotEmpty) {
+      _playlistSubject.add(saved);
+      queue.add(saved.map((e) => e.toMediaItem()).toList());
+      final lastId = await PlaylistStorageService.getLastPlayedSongId();
+      int initialIndex = 0;
+      if (lastId != null) {
+        final idx = saved.indexWhere((s) => s.id == lastId);
+        if (idx != -1) initialIndex = idx;
+      }
+      _currentIndex = initialIndex;
+      final song = saved[initialIndex];
+      _currentSongSubject.add(song);
+      mediaItem.add(song.toMediaItem());
+      try {
+        await _player.setFilePath(song.audioPath);
+      } catch (_) {}
+    }
+  }
+
+  void _handleTrackCompletion() {
+    if (playlist.isEmpty) return;
+
+    if (loopMode == LoopModeType.one) {
+      // วนเพลงเดิม
+      seek(Duration.zero);
+      play();
+    } else if (loopMode == LoopModeType.all) {
+      skipToNext();
+    } else {
+      // LoopModeType.off
+      if (_currentIndex < playlist.length - 1) {
+        skipToNext();
+      } else {
+        pause();
+        seek(Duration.zero);
+      }
+    }
+  }
+
+  // --- Shuffle & Loop Mode Toggles ---
+
+  void toggleShuffle() {
+    _isShuffleSubject.add(!isShuffle);
+  }
+
+  void toggleRepeatMode() {
+    switch (loopMode) {
+      case LoopModeType.all:
+        _loopModeSubject.add(LoopModeType.one);
+        break;
+      case LoopModeType.one:
+        _loopModeSubject.add(LoopModeType.off);
+        break;
+      case LoopModeType.off:
+        _loopModeSubject.add(LoopModeType.all);
+        break;
+    }
+  }
+
+  // --- Sleep Timer ---
+
+  /// ตั้งเวลานับถอยหลังปิดเพลง (ระบุจำนวนนาที)
+  void setSleepTimer(int minutes) {
+    cancelSleepTimer();
+    int secondsRemaining = minutes * 60;
+    _sleepTimerRemainingSubject.add(secondsRemaining);
+
+    _sleepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      secondsRemaining--;
+      if (secondsRemaining <= 0) {
+        timer.cancel();
+        _sleepTimerRemainingSubject.add(null);
+        pause(); // หยุดเล่นเพลงเมื่อหมดเวลา
+      } else {
+        _sleepTimerRemainingSubject.add(secondsRemaining);
+      }
+    });
+  }
+
+  /// ยกเลิกการตั้งเวลาปิดเพลง
+  void cancelSleepTimer() {
+    _sleepCountdownTimer?.cancel();
+    _sleepCountdownTimer = null;
+    _sleepTimerRemainingSubject.add(null);
+  }
+
   // --- Queue & Playlist Management ---
 
   /// กำหนดรายการเพลงใหม่ลงในคิว
   void setPlaylist(List<SongItem> songs, {int initialIndex = 0}) {
     _playlistSubject.add(songs);
     queue.add(songs.map((e) => e.toMediaItem()).toList());
+    PlaylistStorageService.savePlaylist(songs);
 
     if (songs.isNotEmpty && initialIndex >= 0 && initialIndex < songs.length) {
       playSongAtIndex(initialIndex);
@@ -97,9 +210,45 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     currentList.add(song);
     _playlistSubject.add(currentList);
     queue.add(currentList.map((e) => e.toMediaItem()).toList());
+    PlaylistStorageService.savePlaylist(currentList, lastPlayedId: currentSong?.id);
 
     if (currentList.length == 1) {
       playSongAtIndex(0);
+    }
+  }
+
+  /// เพิ่มหลายเพลงเข้าคิว
+  void addSongs(List<SongItem> songs) {
+    final currentList = List<SongItem>.from(playlist);
+    currentList.addAll(songs);
+    _playlistSubject.add(currentList);
+    queue.add(currentList.map((e) => e.toMediaItem()).toList());
+    PlaylistStorageService.savePlaylist(currentList, lastPlayedId: currentSong?.id);
+
+    if (_currentIndex == -1 && currentList.isNotEmpty) {
+      playSongAtIndex(0);
+    }
+  }
+
+  /// ลบเพลงออกจากคิว
+  void removeSongAtIndex(int index) {
+    if (index < 0 || index >= playlist.length) return;
+    final currentList = List<SongItem>.from(playlist);
+    currentList.removeAt(index);
+    _playlistSubject.add(currentList);
+    queue.add(currentList.map((e) => e.toMediaItem()).toList());
+    PlaylistStorageService.savePlaylist(currentList, lastPlayedId: currentSong?.id);
+
+    if (_currentIndex == index) {
+      if (currentList.isNotEmpty) {
+        playSongAtIndex(index.clamp(0, currentList.length - 1));
+      } else {
+        stop();
+        _currentIndex = -1;
+        _currentSongSubject.add(null);
+      }
+    } else if (_currentIndex > index) {
+      _currentIndex--;
     }
   }
 
@@ -110,6 +259,7 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     if (idx != -1) {
       list[idx] = updatedSong;
       _playlistSubject.add(list);
+      PlaylistStorageService.savePlaylist(list, lastPlayedId: currentSong?.id);
       if (_currentIndex == idx) {
         _currentSongSubject.add(updatedSong);
       }
@@ -124,9 +274,9 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     final song = playlist[index];
     _currentSongSubject.add(song);
     mediaItem.add(song.toMediaItem());
+    PlaylistStorageService.savePlaylist(playlist, lastPlayedId: song.id);
 
     try {
-      // โหลดไฟล์เสียงออฟไลน์จาก Local Path
       await _player.setFilePath(song.audioPath);
       _player.play();
     } catch (e) {
@@ -135,7 +285,7 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
-  // --- Media Controls Callbacks (คำสั่งจากหน้าจอ/Notification/หูฟัง) ---
+  // --- Media Controls Callbacks ---
 
   @override
   Future<void> play() => _player.play();
@@ -155,6 +305,17 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> skipToNext() async {
     if (playlist.isEmpty) return;
+
+    if (isShuffle && playlist.length > 1) {
+      // สุ่มเพลงแบบไม่ซ้ำเพลงเดิม
+      int nextIndex;
+      do {
+        nextIndex = Random().nextInt(playlist.length);
+      } while (nextIndex == _currentIndex);
+      await playSongAtIndex(nextIndex);
+      return;
+    }
+
     int nextIndex = _currentIndex + 1;
     if (nextIndex >= playlist.length) {
       nextIndex = 0; // วนกลับไปเพลงแรก
@@ -179,7 +340,7 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
     await playSongAtIndex(prevIndex);
   }
 
-  // Stream สำหรับ UI ติดตามตำแหน่งเวลาปัจจุบัน
+  // Streams
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;

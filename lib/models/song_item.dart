@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:audio_service/audio_service.dart';
 import 'lyric_entry.dart';
 
@@ -10,6 +11,7 @@ class SongItem {
   final String? lrcPath;
   final Duration? duration;
   final List<LyricEntry> lyrics;
+  final Uint8List? coverArt;
 
   SongItem({
     required this.id,
@@ -19,9 +21,10 @@ class SongItem {
     this.lrcPath,
     this.duration,
     this.lyrics = const [],
+    this.coverArt,
   });
 
-  /// คัดลอกและอัปเดตข้อมูลบางส่วน (เช่น เพิ่ม lyrics ทีหลัง)
+  /// คัดลอกและอัปเดตข้อมูลบางส่วน
   SongItem copyWith({
     String? id,
     String? title,
@@ -30,6 +33,7 @@ class SongItem {
     String? lrcPath,
     Duration? duration,
     List<LyricEntry>? lyrics,
+    Uint8List? coverArt,
   }) {
     return SongItem(
       id: id ?? this.id,
@@ -39,6 +43,7 @@ class SongItem {
       lrcPath: lrcPath ?? this.lrcPath,
       duration: duration ?? this.duration,
       lyrics: lyrics ?? this.lyrics,
+      coverArt: coverArt ?? this.coverArt,
     );
   }
 
@@ -46,7 +51,7 @@ class SongItem {
   MediaItem toMediaItem() {
     return MediaItem(
       id: id,
-      album: 'Local Storage',
+      album: 'Offline Music',
       title: title,
       artist: artist,
       duration: duration,
@@ -54,6 +59,26 @@ class SongItem {
         'audioPath': audioPath,
         'lrcPath': lrcPath,
       },
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'artist': artist,
+      'audioPath': audioPath,
+      'lrcPath': lrcPath,
+    };
+  }
+
+  factory SongItem.fromJson(Map<String, dynamic> json) {
+    return SongItem(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      artist: (json['artist'] as String?) ?? 'Unknown Artist',
+      audioPath: json['audioPath'] as String,
+      lrcPath: json['lrcPath'] as String?,
     );
   }
 }
