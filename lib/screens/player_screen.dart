@@ -198,6 +198,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.queue_music_rounded, color: Colors.white, size: 24),
+            tooltip: 'คิวเพลงปัจจุบัน',
+            onPressed: () => _showCurrentQueueModal(context),
+          ),
           StreamBuilder<int?>(
             stream: widget.audioHandler.sleepTimerStream,
             builder: (context, timerSnap) {
@@ -660,6 +665,146 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showCurrentQueueModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF14141E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return FractionallySizedBox(
+          heightFactor: 0.65,
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF334155),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'คิวเพลงปัจจุบัน (Queue)',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Color(0xFF282838), height: 1),
+              Expanded(
+                child: StreamBuilder<List<SongItem>>(
+                  stream: widget.audioHandler.playlistStream,
+                  builder: (context, snapQueue) {
+                    final currentQueue = snapQueue.data ?? [];
+                    if (currentQueue.isEmpty) {
+                      return const Center(
+                        child: Text('ไม่มีเพลงในคิว', style: TextStyle(color: Color(0xFF64748B))),
+                      );
+                    }
+
+                    return StreamBuilder<SongItem?>(
+                      stream: widget.audioHandler.currentSongStream,
+                      builder: (context, currentSnap) {
+                        final currentSong = currentSnap.data;
+
+                        return ListView.builder(
+                          itemCount: currentQueue.length,
+                          itemBuilder: (context, idx) {
+                            final song = currentQueue[idx];
+                            final isCurrent = song.id == currentSong?.id;
+
+                            return Dismissible(
+                              key: Key('queue_${song.id}_$idx'),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                color: Colors.red.withValues(alpha: 0.8),
+                                child: const Icon(Icons.delete_outline, color: Colors.white),
+                              ),
+                              onDismissed: (_) {
+                                widget.audioHandler.removeSongAtIndex(idx);
+                              },
+                              child: ListTile(
+                                tileColor: isCurrent
+                                    ? const Color(0xFF6366F1).withValues(alpha: 0.15)
+                                    : null,
+                                leading: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF222230),
+                                    borderRadius: BorderRadius.circular(8),
+                                    image: song.coverArt != null
+                                        ? DecorationImage(
+                                            image: MemoryImage(song.coverArt!),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
+                                  ),
+                                  child: isCurrent
+                                      ? const Icon(Icons.equalizer_rounded,
+                                          color: Color(0xFF818CF8), size: 22)
+                                      : (song.coverArt == null
+                                          ? const Icon(Icons.music_note_rounded,
+                                              color: Color(0xFF64748B), size: 20)
+                                          : null),
+                                ),
+                                title: Text(
+                                  song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isCurrent ? const Color(0xFF818CF8) : Colors.white,
+                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  song.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                ),
+                                trailing: isCurrent
+                                    ? const Text('กำลังเล่น',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF10B981),
+                                            fontWeight: FontWeight.bold))
+                                    : null,
+                                onTap: () {
+                                  widget.audioHandler.playSongAtIndex(idx);
+                                },
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

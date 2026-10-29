@@ -93,7 +93,7 @@ class OnlineDownloaderService {
   /// แกะข้อมูลจากลิงก์ YouTube
   static Future<TrackMeta> _extractYouTubeMeta(String youtubeUrl) async {
     final video = await _yt.videos.get(youtubeUrl);
-    final title = _cleanSongTitle(video.title);
+    final title = cleanSongTitle(video.title);
     final artist = video.author.replaceAll(' - Topic', '').trim();
     final coverUrl = video.thumbnails.highResUrl;
 
@@ -127,7 +127,7 @@ class OnlineDownloaderService {
       await downloadDir.create(recursive: true);
     }
 
-    final safeFilename = _sanitizeFilename('${meta.title} - ${meta.artist}');
+    final safeFilename = sanitizeFilename('${meta.title} - ${meta.artist}');
     final audioFilePath = '${downloadDir.path}/$safeFilename.mp3';
     final audioFile = File(audioFilePath);
 
@@ -231,7 +231,7 @@ class OnlineDownloaderService {
   }
 
   /// ลบคำฟุ่มเฟือยออกจากชื่อคลิป YouTube เช่น (Official Music Video), [Audio], 4K
-  static String _cleanSongTitle(String title) {
+  static String cleanSongTitle(String title) {
     var cleaned = title;
     cleaned = cleaned.replaceAll(RegExp(r'\[.*?\]'), '');
     cleaned = cleaned.replaceAll(
@@ -248,7 +248,7 @@ class OnlineDownloaderService {
   }
 
   /// กำจัดอักขระต้องห้ามสำหรับชื่อไฟล์บนระบบปฏิบัติการ
-  static String _sanitizeFilename(String name) {
+  static String sanitizeFilename(String name) {
     return name
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
         .replaceAll(RegExp(r'\s+'), ' ')

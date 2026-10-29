@@ -20,7 +20,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  CustomPlaylist? _activeCustomPlaylist;
+  String? _activeCustomPlaylistId;
   bool _isViewingDownloaded = false;
 
   @override
@@ -223,11 +223,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 await widget.audioHandler.renameCustomPlaylist(playlist.id, newName);
                 if (context.mounted) {
                   Navigator.pop(ctx);
-                  setState(() {
-                    if (_activeCustomPlaylist?.id == playlist.id) {
-                      _activeCustomPlaylist = _activeCustomPlaylist?.copyWith(name: newName);
-                    }
-                  });
                 }
               }
             },
@@ -386,11 +381,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                         onPressed: () async {
                                           await widget.audioHandler
                                               .addSongToCustomPlaylist(playlist.id, song.id);
-                                          setState(() {
-                                            _activeCustomPlaylist = widget.audioHandler.customPlaylists
-                                                .where((p) => p.id == playlist.id)
-                                                .firstOrNull;
-                                          });
                                           if (ctx.mounted) {
                                             Navigator.pop(ctx);
                                             ScaffoldMessenger.of(context).showSnackBar(
@@ -637,11 +627,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () async {
                     Navigator.pop(ctx);
                     await widget.audioHandler.removeSongFromCustomPlaylist(playlist.id, song.id);
-                    setState(() {
-                      _activeCustomPlaylist = widget.audioHandler.customPlaylists
-                          .where((p) => p.id == playlist.id)
-                          .firstOrNull;
-                    });
                   },
                 )
               else
@@ -687,11 +672,9 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 widget.audioHandler.deleteCustomPlaylist(pl.id);
-                setState(() {
-                  if (_activeCustomPlaylist?.id == pl.id) {
-                    _activeCustomPlaylist = null;
-                  }
-                });
+                if (_activeCustomPlaylistId == pl.id) {
+                  setState(() => _activeCustomPlaylistId = null);
+                }
               },
             ),
           ],
@@ -702,96 +685,130 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0D0D11),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: _isViewingDownloaded || _activeCustomPlaylist != null
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
-                onPressed: () {
-                  setState(() {
-                    _isViewingDownloaded = false;
-                    _activeCustomPlaylist = null;
-                  });
-                },
-              )
-            : StreamBuilder<int?>(
-                stream: widget.audioHandler.sleepTimerStream,
-                builder: (context, timerSnap) {
-                  final remaining = timerSnap.data;
-                  final isActive = remaining != null;
-                  return IconButton(
-                    icon: Icon(
-                      isActive ? Icons.timer_rounded : Icons.timer_outlined,
-                      color: isActive ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
-                      size: 22,
-                    ),
-                    tooltip: isActive ? 'ตั้งเวลาปิดเพลง' : 'ตั้งเวลาปิดเพลง',
-                    onPressed: () => _showSleepTimerDialog(context),
-                  );
-                },
-              ),
-        title: Text(
-          _isViewingDownloaded
-              ? 'ดาวน์โหลด'
-              : (_activeCustomPlaylist != null
-                  ? _activeCustomPlaylist!.name
-                  : 'เพลย์ลิสต์'),
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-            letterSpacing: 0.3,
+    return PopScope(
+      canPop: !_isViewingDownloaded && _activeCustomPlaylistId == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isViewingDownloaded || _activeCustomPlaylistId != null) {
+          setState(() {
+            _isViewingDownloaded = false;
+            _activeCustomPlaylistId = null;
+          });
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0D0D11),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: _isViewingDownloaded || _activeCustomPlaylistId != null
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _isViewingDownloaded = false;
+                      _activeCustomPlaylistId = null;
+                    });
+                  },
+                )
+              : StreamBuilder<int?>(
+                  stream: widget.audioHandler.sleepTimerStream,
+                  builder: (context, timerSnap) {
+                    final remaining = timerSnap.data;
+                    final isActive = remaining != null;
+                    return IconButton(
+                      icon: Icon(
+                        isActive ? Icons.timer_rounded : Icons.timer_outlined,
+                        color: isActive ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                        size: 22,
+                      ),
+                      tooltip: isActive ? 'ตั้งเวลาปิดเพลง' : 'ตั้งเวลาปิดเพลง',
+                      onPressed: () => _showSleepTimerDialog(context),
+                    );
+                  },
+                ),
+          title: StreamBuilder<List<CustomPlaylist>>(
+            stream: widget.audioHandler.customPlaylistsStream,
+            builder: (context, snap) {
+              String titleText = 'เพลย์ลิสต์';
+              if (_isViewingDownloaded) {
+                titleText = 'ดาวน์โหลด';
+              } else if (_activeCustomPlaylistId != null) {
+                final lists = snap.data ?? widget.audioHandler.customPlaylists;
+                final found = lists.where((p) => p.id == _activeCustomPlaylistId).firstOrNull;
+                titleText = found?.name ?? 'เพลย์ลิสต์';
+              }
+              return Text(
+                titleText,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.3,
+                ),
+              );
+            },
           ),
-        ),
-        actions: [
-          if (_isViewingDownloaded || _activeCustomPlaylist != null) ...[
-            if (_activeCustomPlaylist != null) ...[
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF818CF8), size: 24),
-                tooltip: 'เพิ่มเพลงเข้าเพลย์ลิสต์นี้',
-                onPressed: () => _showAddSongsToPlaylistPicker(context, _activeCustomPlaylist!),
+          actions: [
+            if (_isViewingDownloaded || _activeCustomPlaylistId != null) ...[
+              if (_activeCustomPlaylistId != null)
+                StreamBuilder<List<CustomPlaylist>>(
+                  stream: widget.audioHandler.customPlaylistsStream,
+                  builder: (context, snap) {
+                    final lists = snap.data ?? widget.audioHandler.customPlaylists;
+                    final activePl = lists.where((p) => p.id == _activeCustomPlaylistId).firstOrNull;
+                    if (activePl == null) return const SizedBox.shrink();
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline_rounded,
+                              color: Color(0xFF818CF8), size: 24),
+                          tooltip: 'เพิ่มเพลงเข้าเพลย์ลิสต์นี้',
+                          onPressed: () => _showAddSongsToPlaylistPicker(context, activePl),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.more_vert_rounded, color: Colors.white70),
+                          onPressed: () => _showPlaylistMenu(context, activePl),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+            ] else ...[
+              // ปุ่มสร้างเพลย์ลิสต์
+              ElevatedButton.icon(
+                onPressed: () => _showCreatePlaylistDialog(context),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('สร้างเพลย์ลิสต์'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF242436),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
               ),
+              const SizedBox(width: 6),
+              // ปุ่มดาวน์โหลดออนไลน์
               IconButton(
-                icon: const Icon(Icons.more_vert_rounded, color: Colors.white70),
-                onPressed: () => _showPlaylistMenu(context, _activeCustomPlaylist!),
+                icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8), size: 22),
+                tooltip: 'ดาวน์โหลดจากลิงก์',
+                onPressed: () => DownloadDialog.show(context, widget.audioHandler),
+              ),
+              // ปุ่มเลือกเพลงจากเครื่อง
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline_rounded, color: Colors.white, size: 22),
+                tooltip: 'เพิ่มเพลงจากเครื่อง',
+                onPressed: _handleImportSongs,
               ),
             ],
-          ] else ...[
-            // ปุ่มสร้างเพลย์ลิสต์
-            ElevatedButton.icon(
-              onPressed: () => _showCreatePlaylistDialog(context),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('สร้างเพลย์ลิสต์'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF242436),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              ),
-            ),
-            const SizedBox(width: 6),
-            // ปุ่มดาวน์โหลดออนไลน์
-            IconButton(
-              icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8), size: 22),
-              tooltip: 'ดาวน์โหลดจากลิงก์',
-              onPressed: () => DownloadDialog.show(context, widget.audioHandler),
-            ),
-            // ปุ่มเลือกเพลงจากเครื่อง
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline_rounded, color: Colors.white, size: 22),
-              tooltip: 'เพิ่มเพลงจากเครื่อง',
-              onPressed: _handleImportSongs,
-            ),
           ],
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: SafeArea(
-        child: MiniPlayer(audioHandler: widget.audioHandler),
+        ),
+        body: _buildBody(),
+        bottomNavigationBar: SafeArea(
+          child: MiniPlayer(audioHandler: widget.audioHandler),
+        ),
       ),
     );
   }
@@ -800,8 +817,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isViewingDownloaded) {
       return _buildDownloadedDetailView();
     }
-    if (_activeCustomPlaylist != null) {
-      return _buildCustomPlaylistDetailView(_activeCustomPlaylist!);
+    if (_activeCustomPlaylistId != null) {
+      return _buildCustomPlaylistDetailView(_activeCustomPlaylistId!);
     }
     return _buildSpotifyPlaylistsGridView();
   }
@@ -879,7 +896,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         onTap: () {
                           setState(() {
-                            _activeCustomPlaylist = pl;
+                            _activeCustomPlaylistId = pl.id;
                           });
                         },
                         onLongPress: () {
@@ -1016,14 +1033,29 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Text('ยังไม่มีเพลงที่ดาวน์โหลดไว้',
                               style: TextStyle(color: Color(0xFF64748B))),
                           const SizedBox(height: 12),
-                          ElevatedButton.icon(
-                            onPressed: () => DownloadDialog.show(context, widget.audioHandler),
-                            icon: const Icon(Icons.link_rounded),
-                            label: const Text('วางลิงก์ดาวน์โหลดเพลง'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4F46E5),
-                              foregroundColor: Colors.white,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: () => DownloadDialog.show(context, widget.audioHandler),
+                                icon: const Icon(Icons.link_rounded),
+                                label: const Text('วางลิงก์ดาวน์โหลด'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4F46E5),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton.icon(
+                                onPressed: _handleImportSongs,
+                                icon: const Icon(Icons.folder_open_rounded),
+                                label: const Text('เลือกจากเครื่อง'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF818CF8),
+                                  side: const BorderSide(color: Color(0xFF4338CA)),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1083,145 +1115,153 @@ class _HomeScreenState extends State<HomeScreen> {
   // ==========================================
   // หน้าดูเพลงใน Custom Playlist (เช่น T)
   // ==========================================
-  Widget _buildCustomPlaylistDetailView(CustomPlaylist pl) {
-    return StreamBuilder<List<SongItem>>(
-      stream: widget.audioHandler.masterLibraryStream,
-      builder: (context, snapMaster) {
-        final masterSongs = snapMaster.data ?? [];
-        final songsInPlaylist = <SongItem>[];
-        for (var sid in pl.songIds) {
-          final found = masterSongs.where((s) => s.id == sid).firstOrNull;
-          if (found != null) songsInPlaylist.add(found);
+  Widget _buildCustomPlaylistDetailView(String playlistId) {
+    return StreamBuilder<List<CustomPlaylist>>(
+      stream: widget.audioHandler.customPlaylistsStream,
+      builder: (context, snapPlaylists) {
+        final playlists = snapPlaylists.data ?? widget.audioHandler.customPlaylists;
+        final pl = playlists.where((p) => p.id == playlistId).firstOrNull;
+        if (pl == null) {
+          return const Center(
+            child: Text('ไม่พบเพลย์ลิสต์นี้', style: TextStyle(color: Color(0xFF64748B))),
+          );
         }
 
-        return Column(
-          children: [
-            // Action Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      color: const Color(0xFF28283C),
-                    ),
-                    child: const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text('${songsInPlaylist.length} เพลง',
-                        style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8))),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: songsInPlaylist.isEmpty
-                        ? null
-                        : () => widget.audioHandler.playCustomPlaylist(pl),
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('เล่น'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(color: Color(0xFF1E293B), height: 1),
+        return StreamBuilder<List<SongItem>>(
+          stream: widget.audioHandler.masterLibraryStream,
+          builder: (context, snapMaster) {
+            final masterSongs = snapMaster.data ?? [];
+            final songsInPlaylist = <SongItem>[];
+            for (var sid in pl.songIds) {
+              final found = masterSongs.where((s) => s.id == sid).firstOrNull;
+              if (found != null) songsInPlaylist.add(found);
+            }
 
-            Expanded(
-              child: songsInPlaylist.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.queue_music_outlined,
-                              size: 48, color: Color(0xFF334155)),
-                          const SizedBox(height: 12),
-                          const Text('เพลย์ลิสต์นี้ยังไม่มีเพลง',
-                              style: TextStyle(color: Color(0xFF64748B))),
-                          const SizedBox(height: 12),
-                          ElevatedButton.icon(
-                            onPressed: () => _showAddSongsToPlaylistPicker(context, pl),
-                            icon: const Icon(Icons.add_rounded),
-                            label: const Text('เลือกเพลงเข้าเพลย์ลิสต์นี้'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4F46E5),
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
+            return Column(
+              children: [
+                // Action Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: const Color(0xFF28283C),
+                        ),
+                        child: const Icon(Icons.queue_music_rounded, color: Color(0xFF818CF8), size: 22),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: songsInPlaylist.length,
-                      itemBuilder: (context, idx) {
-                        final song = songsInPlaylist[idx];
-                        return Dismissible(
-                          key: Key('${pl.id}_${song.id}'),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 20),
-                            color: Colors.red.withValues(alpha: 0.8),
-                            child: const Icon(Icons.delete_outline, color: Colors.white),
-                          ),
-                          onDismissed: (_) async {
-                            await widget.audioHandler.removeSongFromCustomPlaylist(pl.id, song.id);
-                            setState(() {
-                              _activeCustomPlaylist = widget.audioHandler.customPlaylists
-                                  .where((p) => p.id == pl.id)
-                                  .firstOrNull;
-                            });
-                          },
-                          child: ListTile(
-                            leading: Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1E1E28),
-                                borderRadius: BorderRadius.circular(8),
-                                image: song.coverArt != null
-                                    ? DecorationImage(
-                                        image: MemoryImage(song.coverArt!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text('${songsInPlaylist.length} เพลง',
+                            style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8))),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: songsInPlaylist.isEmpty
+                            ? null
+                            : () => widget.audioHandler.playCustomPlaylist(pl),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('เล่น'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6366F1),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Color(0xFF1E293B), height: 1),
+
+                Expanded(
+                  child: songsInPlaylist.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.queue_music_outlined,
+                                  size: 48, color: Color(0xFF334155)),
+                              const SizedBox(height: 12),
+                              const Text('เพลย์ลิสต์นี้ยังไม่มีเพลง',
+                                  style: TextStyle(color: Color(0xFF64748B))),
+                              const SizedBox(height: 12),
+                              ElevatedButton.icon(
+                                onPressed: () => _showAddSongsToPlaylistPicker(context, pl),
+                                icon: const Icon(Icons.add_rounded),
+                                label: const Text('เลือกเพลงเข้าเพลย์ลิสต์นี้'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4F46E5),
+                                  foregroundColor: Colors.white,
+                                ),
                               ),
-                              child: song.coverArt == null
-                                  ? const Icon(Icons.music_note_rounded,
-                                      color: Color(0xFF6366F1), size: 22)
-                                  : null,
-                            ),
-                            title: Text(
-                              song.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                            ),
-                            subtitle: Text(
-                              song.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B)),
-                              onPressed: () => _showSongOptions(context, song, idx,
-                                  isCustomPlaylist: true, playlist: pl),
-                            ),
-                            onTap: () {
-                              widget.audioHandler.playCustomPlaylist(pl, initialIndex: idx);
-                            },
+                            ],
                           ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                        )
+                      : ListView.builder(
+                          itemCount: songsInPlaylist.length,
+                          itemBuilder: (context, idx) {
+                            final song = songsInPlaylist[idx];
+                            return Dismissible(
+                              key: Key('${pl.id}_${song.id}'),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                color: Colors.red.withValues(alpha: 0.8),
+                                child: const Icon(Icons.delete_outline, color: Colors.white),
+                              ),
+                              onDismissed: (_) async {
+                                await widget.audioHandler.removeSongFromCustomPlaylist(pl.id, song.id);
+                              },
+                              child: ListTile(
+                                leading: Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1E1E28),
+                                    borderRadius: BorderRadius.circular(8),
+                                    image: song.coverArt != null
+                                        ? DecorationImage(
+                                            image: MemoryImage(song.coverArt!),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
+                                  ),
+                                  child: song.coverArt == null
+                                      ? const Icon(Icons.music_note_rounded,
+                                          color: Color(0xFF6366F1), size: 22)
+                                      : null,
+                                ),
+                                title: Text(
+                                  song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                ),
+                                subtitle: Text(
+                                  song.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF64748B)),
+                                  onPressed: () => _showSongOptions(context, song, idx,
+                                      isCustomPlaylist: true, playlist: pl),
+                                ),
+                                onTap: () {
+                                  widget.audioHandler.playCustomPlaylist(pl, initialIndex: idx);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
