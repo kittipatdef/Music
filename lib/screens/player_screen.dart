@@ -6,6 +6,7 @@ import '../services/audio_handler.dart';
 import '../services/file_picker_service.dart';
 import '../services/lyrics_parser.dart';
 import '../widgets/download_dialog.dart';
+import '../widgets/playlist_bottom_sheet.dart';
 
 class PlayerScreen extends StatefulWidget {
   final MyAudioHandler audioHandler;
@@ -671,157 +672,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _showPlaylistModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF14141C),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return StreamBuilder<List<SongItem>>(
-          stream: widget.audioHandler.playlistStream,
-          builder: (context, snapshot) {
-            final playlist = snapshot.data ?? [];
-
-            return Column(
-              children: [
-                const SizedBox(height: 14),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF334155),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'รายการเพลง (${playlist.length})',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8), size: 22),
-                            tooltip: 'ดาวน์โหลดจากลิงก์',
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              DownloadDialog.show(context, widget.audioHandler);
-                            },
-                          ),
-                          TextButton.icon(
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _handleImportSongs();
-                            },
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('เพิ่มเพลง'),
-                            style: TextButton.styleFrom(foregroundColor: const Color(0xFF818CF8)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(color: Color(0xFF1E293B), height: 1),
-                Expanded(
-                  child: playlist.isEmpty
-                      ? const Center(
-                          child: Text('ไม่มีเพลงในรายการ',
-                              style: TextStyle(color: Color(0xFF64748B))),
-                        )
-                      : ListView.builder(
-                          itemCount: playlist.length,
-                          itemBuilder: (context, idx) {
-                            final item = playlist[idx];
-                            final isPlayingThis = widget.audioHandler.currentIndex == idx;
-
-                            return Dismissible(
-                              key: Key(item.id + idx.toString()),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                color: Colors.red.withValues(alpha: 0.8),
-                                child: const Icon(Icons.delete_outline, color: Colors.white),
-                              ),
-                              onDismissed: (_) {
-                                widget.audioHandler.removeSongAtIndex(idx);
-                              },
-                              child: ListTile(
-                                leading: Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(8),
-                                    color: const Color(0xFF1E1E28),
-                                    image: item.coverArt != null
-                                        ? DecorationImage(
-                                            image: MemoryImage(item.coverArt!),
-                                            fit: BoxFit.cover,
-                                          )
-                                        : null,
-                                  ),
-                                  child: item.coverArt == null
-                                      ? Icon(
-                                          isPlayingThis
-                                              ? Icons.volume_up_rounded
-                                              : Icons.music_note_rounded,
-                                          color: isPlayingThis
-                                              ? const Color(0xFF6366F1)
-                                              : const Color(0xFF475569),
-                                          size: 20,
-                                        )
-                                      : null,
-                                ),
-                                title: Text(
-                                  item.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontWeight:
-                                        isPlayingThis ? FontWeight.bold : FontWeight.normal,
-                                    color:
-                                        isPlayingThis ? const Color(0xFF818CF8) : Colors.white,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  item.lyrics.isNotEmpty ? '✓ มีเนื้อเพลง' : 'ไม่มีเนื้อเพลง',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: item.lyrics.isNotEmpty
-                                        ? const Color(0xFF10B981)
-                                        : const Color(0xFF64748B),
-                                  ),
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.more_vert_rounded,
-                                      color: Color(0xFF64748B)),
-                                  onPressed: () => _handleImportLrc(item),
-                                  tooltip: 'เพิ่มไฟล์ .lrc ให้เพลงนี้',
-                                ),
-                                onTap: () {
-                                  widget.audioHandler.playSongAtIndex(idx);
-                                  Navigator.pop(ctx);
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    PlaylistBottomSheet.show(
+      context,
+      audioHandler: widget.audioHandler,
+      onImportSongs: _handleImportSongs,
+      onImportLrc: _handleImportLrc,
     );
   }
 
