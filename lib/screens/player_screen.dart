@@ -6,7 +6,6 @@ import '../services/audio_handler.dart';
 import '../services/file_picker_service.dart';
 import '../services/lyrics_parser.dart';
 import '../widgets/download_dialog.dart';
-import '../widgets/playlist_bottom_sheet.dart';
 
 class PlayerScreen extends StatefulWidget {
   final MyAudioHandler audioHandler;
@@ -180,26 +179,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: StreamBuilder<int?>(
-          stream: widget.audioHandler.sleepTimerStream,
-          builder: (context, timerSnap) {
-            final remaining = timerSnap.data;
-            final isActive = remaining != null;
-            return IconButton(
-              icon: Icon(
-                isActive ? Icons.timer_rounded : Icons.timer_outlined,
-                color: isActive ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
-                size: 22,
-              ),
-              tooltip: isActive
-                  ? 'เหลือเวลา ${_formatSeconds(remaining)}'
-                  : 'ตั้งเวลาปิดเพลง',
-              onPressed: () => _showSleepTimerDialog(context),
-            );
-          },
-        ),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                    size: 34, color: Colors.white),
+                tooltip: 'ย่อเครื่องเล่นเพลง',
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
         title: const Text(
-          'OFFLINE PLAYER',
+          'กำลังเล่น (NOW PLAYING)',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
@@ -209,20 +198,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8)),
-            tooltip: 'ดาวน์โหลดจากลิงก์ YouTube / Spotify',
-            onPressed: () => DownloadDialog.show(context, widget.audioHandler),
-          ),
-          IconButton(
-            icon: const Icon(Icons.playlist_play_rounded, color: Colors.white, size: 28),
-            tooltip: 'รายการคิวเพลง',
-            onPressed: () => _showPlaylistModal(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline_rounded, color: Colors.white),
-            tooltip: 'เพิ่มเพลงจากเครื่อง',
-            onPressed: _handleImportSongs,
+          StreamBuilder<int?>(
+            stream: widget.audioHandler.sleepTimerStream,
+            builder: (context, timerSnap) {
+              final remaining = timerSnap.data;
+              final isActive = remaining != null;
+              return IconButton(
+                icon: Icon(
+                  isActive ? Icons.timer_rounded : Icons.timer_outlined,
+                  color: isActive ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                  size: 22,
+                ),
+                tooltip: isActive
+                    ? 'เหลือเวลา ${_formatSeconds(remaining)}'
+                    : 'ตั้งเวลาปิดเพลง',
+                onPressed: () => _showSleepTimerDialog(context),
+              );
+            },
           ),
         ],
       ),
@@ -668,15 +660,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  void _showPlaylistModal(BuildContext context) {
-    PlaylistBottomSheet.show(
-      context,
-      audioHandler: widget.audioHandler,
-      onImportSongs: _handleImportSongs,
-      onImportLrc: _handleImportLrc,
     );
   }
 

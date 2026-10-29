@@ -1,7 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/player_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/audio_handler.dart';
 
 late MyAudioHandler _audioHandler;
@@ -55,7 +55,7 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'sans-serif',
       ),
-      home: PlayerScreen(audioHandler: audioHandler),
+      home: HomeScreen(audioHandler: audioHandler),
     );
   }
 }
