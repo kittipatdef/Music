@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -319,6 +320,49 @@ class MyAudioHandler extends BaseAudioHandler with SeekHandler {
       masterList[mIdx] = updatedSong;
       _masterLibrarySubject.add(masterList);
       PlaylistStorageService.saveMasterLibrary(masterList);
+    }
+  }
+
+  /// ลบเพลงออกจากคลังดาวน์โหลดหลักและทุกเพลย์ลิสต์
+  Future<void> removeSongFromMaster(String songId) async {
+    // 1. นำออกจาก Master Library
+    final masterList = List<SongItem>.from(masterLibrary);
+    final songToRemove = masterList.where((s) => s.id == songId).firstOrNull;
+    masterList.removeWhere((s) => s.id == songId);
+    _masterLibrarySubject.add(masterList);
+    await PlaylistStorageService.saveMasterLibrary(masterList);
+
+    // 2. นำออกจากคิวปัจจุบัน ถ้ามีอยู่
+    final qIndex = playlist.indexWhere((s) => s.id == songId);
+    if (qIndex != -1) {
+      removeSongAtIndex(qIndex);
+    }
+
+    // 3. นำออกจาก Custom Playlists ทั้งหมด
+    final updatedPlaylists = customPlaylists.map((pl) {
+      if (pl.songIds.contains(songId)) {
+        final newIds = List<String>.from(pl.songIds)..remove(songId);
+        return pl.copyWith(songIds: newIds);
+      }
+      return pl;
+    }).toList();
+    _customPlaylistsSubject.add(updatedPlaylists);
+    await PlaylistStorageService.saveCustomPlaylists(updatedPlaylists);
+
+    // 4. ลบไฟล์จริงในเครื่องถ้าอยู่ใน DownloadedMusic
+    if (songToRemove != null) {
+      try {
+        final file = File(songToRemove.audioPath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        if (songToRemove.lrcPath != null) {
+          final lrcFile = File(songToRemove.lrcPath!);
+          if (await lrcFile.exists()) {
+            await lrcFile.delete();
+          }
+        }
+      } catch (_) {}
     }
   }
 
