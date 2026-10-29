@@ -28,6 +28,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
 
+    // ขอสิทธิ์แจ้งเตือน Notification และสิทธิ์การเข้าถึงไฟล์ตั้งแต่เริ่มเปิดแอป
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FilePickerService.requestPermissions();
+    });
+
     widget.audioHandler.positionStream.listen((position) {
       final currentSong = widget.audioHandler.currentSong;
       if (currentSong == null || currentSong.lyrics.isEmpty) return;
