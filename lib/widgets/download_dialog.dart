@@ -56,7 +56,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
     }
 
     if (!OnlineDownloaderService.isSupportedUrl(url)) {
-      setState(() => _errorMessage = 'รองรับเฉพาะลิงก์ YouTube และ Spotify เท่านั้น');
+      setState(() => _errorMessage = 'รองรับเฉพาะลิงก์ YouTube เท่านั้น');
       return;
     }
 
@@ -140,7 +140,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
               Icon(Icons.cloud_download_rounded, color: Color(0xFF818CF8), size: 24),
               SizedBox(width: 10),
               Text(
-                'ดาวน์โหลดจากลิงก์',
+                'ดาวน์โหลดจาก YouTube',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -151,7 +151,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'วางลิงก์จาก YouTube หรือ Spotify เพื่อดูดเพลงและเนื้อเพลงซิงค์ .lrc อัตโนมัติ',
+            'วางลิงก์จาก YouTube เพื่อดูดเพลงและเนื้อเพลงซิงค์ .lrc อัตโนมัติ',
             style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 20),
@@ -162,7 +162,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
             enabled: !_isLoading,
             style: const TextStyle(color: Colors.white, fontSize: 14),
             decoration: InputDecoration(
-              hintText: 'วางลิงก์ YouTube หรือ Spotify ที่นี่...',
+              hintText: 'วางลิงก์ YouTube ที่นี่... (เช่น https://youtu.be/...)',
               hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 13),
               filled: true,
               fillColor: const Color(0xFF1E1E28),

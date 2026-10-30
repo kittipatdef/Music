@@ -3,14 +3,15 @@ import 'package:personal_offline_music_player/services/online_downloader_service
 
 void main() {
   group('OnlineDownloaderService Tests', () {
-    test('isSupportedUrl identifies valid YouTube and Spotify URLs', () {
+    test('isSupportedUrl identifies valid YouTube URLs', () {
       expect(OnlineDownloaderService.isSupportedUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
       expect(OnlineDownloaderService.isSupportedUrl('https://youtu.be/dQw4w9WgXcQ'), isTrue);
-      expect(OnlineDownloaderService.isSupportedUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), isTrue);
-      expect(OnlineDownloaderService.isSupportedUrl('https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3'), isTrue);
+      expect(OnlineDownloaderService.isSupportedUrl('https://m.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
     });
 
-    test('isSupportedUrl rejects invalid or unsupported URLs', () {
+    test('isSupportedUrl rejects Spotify, other platforms, and invalid URLs', () {
+      expect(OnlineDownloaderService.isSupportedUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT'), isFalse);
+      expect(OnlineDownloaderService.isSupportedUrl('https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3'), isFalse);
       expect(OnlineDownloaderService.isSupportedUrl('https://google.com'), isFalse);
       expect(OnlineDownloaderService.isSupportedUrl('https://facebook.com/video'), isFalse);
       expect(OnlineDownloaderService.isSupportedUrl('just a random song title'), isFalse);
