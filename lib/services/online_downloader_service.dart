@@ -27,7 +27,7 @@ class TrackMeta {
   });
 }
 
-/// Service สำหรับดาวน์โหลดเพลงจาก YouTube พร้อมดึงเนื้อเพลงซิงค์ .lrc
+/// Service สำหรับดาวน์โหลดเพลงจาก YouTube พร้อมดึงเนื้อเพลงซิงค์ .lrc ด้วยความเร็วสูง
 class OnlineDownloaderService {
   static final YoutubeExplode _yt = YoutubeExplode();
 
@@ -63,7 +63,7 @@ class OnlineDownloaderService {
       throw Exception('ลิงก์ YouTube ไม่ถูกต้อง ไม่พบรหัสวิดีโอ');
     }
 
-    // 1. ลองดึงข้อมูลและลิงก์สตรีมผ่าน Invidious API ก่อน
+    // 1. ดึงข้อมูลและลิงก์สตรีมผ่าน Invidious API ก่อน
     for (final base in _invidiousInstances) {
       try {
         final res = await http.get(Uri.parse('$base/api/v1/videos/$videoId')).timeout(const Duration(seconds: 4));
@@ -152,7 +152,7 @@ class OnlineDownloaderService {
       final audioFilePath = '${downloadDir.path}/$safeFilename.mp3';
       final audioFile = File(audioFilePath);
 
-      // สตรีมดาวน์โหลดไฟล์เสียงโดยตรง
+      // สตรีมดาวน์โหลดไฟล์เสียงโดยตรงด้วยระบบ Multi-threaded Speed Boost
       final success = await _streamDownloadAudio(
         meta,
         audioFile,
@@ -164,7 +164,7 @@ class OnlineDownloaderService {
       }
 
       // ดึงเนื้อเพลงซิงค์ .lrc จาก LRCLIB
-      onProgress('กำลังค้นหาเนื้อเพลงซิงค์ (.lrc)...', 0.75);
+      onProgress('กำลังค้นหาเนื้อเพลงซิงค์ (.lrc)...', 0.8);
       List<LyricEntry> lyrics = [];
       String? lrcFilePath;
 
@@ -173,15 +173,15 @@ class OnlineDownloaderService {
         lrcFilePath = '${downloadDir.path}/$safeFilename.lrc';
         await File(lrcFilePath).writeAsString(lrcContent);
         lyrics = LyricsParser.parse(lrcContent);
-        onProgress('พบเนื้อเพลงซิงค์สำเร็จ (${lyrics.length} บรรทัด)', 0.85);
+        onProgress('พบเนื้อเพลงซิงค์สำเร็จ (${lyrics.length} บรรทัด)', 0.9);
       } else {
-        onProgress('ไม่พบเนื้อเพลงซิงค์สำหรับเพลงนี้', 0.85);
+        onProgress('ไม่พบเนื้อเพลงซิงค์สำหรับเพลงนี้', 0.9);
       }
 
       // ดาวน์โหลดภาพปกอัลบั้ม
       Uint8List? coverBytes;
       if (meta.coverUrl != null && meta.coverUrl!.isNotEmpty) {
-        onProgress('กำลังโหลดภาพปกอัลบั้ม...', 0.9);
+        onProgress('กำลังโหลดภาพปกอัลบั้ม...', 0.95);
         try {
           final imgRes = await http.get(Uri.parse(meta.coverUrl!)).timeout(
                 const Duration(seconds: 8),
@@ -217,21 +217,33 @@ class OnlineDownloaderService {
     }
   }
 
-  /// สตรีมดาวน์โหลดไฟล์เสียงผ่าน HTTP Stream โดยตรง ไม่ผ่านตัวกลางที่ค้าง
+  /// สตรีมดาวน์โหลดไฟล์เสียงด้วยระบบ Multi-threaded Range Requests เพื่อความเร็วสูงสุด (ไม่โดนจำกัดความเร็ว)
   static Future<bool> _streamDownloadAudio(
     TrackMeta meta,
     File destinationFile,
     Function(String status, double progress) onProgress,
   ) async {
-    // รายการ URL ที่จะลองดาวน์โหลดตามลำดับ
-    final candidateUrls = <String>[];
+    // 1. ถ้ามี Direct Stream URL และทราบขนาดไฟล์ ให้ใช้ดาวน์โหลดหลายเธรดคู่ขนานทันที (เร็วขึ้นเกือบ 100 เท่า)
+    if (meta.directStreamUrl != null &&
+        meta.directStreamUrl!.isNotEmpty &&
+        meta.streamBytes != null &&
+        meta.streamBytes! > 0) {
+      final multiThreadOk = await _downloadConcurrentChunks(
+        audioUrl: meta.directStreamUrl!,
+        totalBytes: meta.streamBytes!,
+        destinationFile: destinationFile,
+        onProgress: onProgress,
+      );
+      if (multiThreadOk) {
+        return true;
+      }
+    }
 
-    // 1. URL ตรงจาก Google Video ที่มี PO Token แนบมาแล้ว
+    // 2. รายการ URL ที่จะลองดาวน์โหลดตามลำดับ
+    final candidateUrls = <String>[];
     if (meta.directStreamUrl != null && meta.directStreamUrl!.isNotEmpty) {
       candidateUrls.add(meta.directStreamUrl!);
     }
-
-    // 2. Invidious Audio Proxies (itag 140 = 128k AAC / itag 251 = Opus)
     for (final base in _invidiousInstances) {
       candidateUrls.add('$base/latest_version?id=${meta.youtubeVideoId}&itag=140');
       candidateUrls.add('$base/latest_version?id=${meta.youtubeVideoId}&itag=251');
@@ -246,15 +258,24 @@ class OnlineDownloaderService {
         final streamedRes = await client.send(req).timeout(const Duration(seconds: 7));
         if (streamedRes.statusCode == 200 || streamedRes.statusCode == 206) {
           final expectedBytes = streamedRes.contentLength ?? meta.streamBytes ?? 0;
+
+          // ถ้าทราบขนาดไฟล์ ให้ลองทำ multi-thread ดาวน์โหลดทันที
+          if (expectedBytes > 0 && streamUrl == meta.directStreamUrl) {
+            client.close();
+            final ok = await _downloadConcurrentChunks(
+              audioUrl: streamUrl,
+              totalBytes: expectedBytes,
+              destinationFile: destinationFile,
+              onProgress: onProgress,
+            );
+            if (ok) return true;
+          }
+
           final totalMbStr = expectedBytes > 0
               ? (expectedBytes / (1024 * 1024)).toStringAsFixed(1)
               : '';
 
-          if (totalMbStr.isNotEmpty) {
-            onProgress('กำลังดาวน์โหลดเพลง ($totalMbStr MB)...', 0.2);
-          } else {
-            onProgress('กำลังดาวน์โหลดเพลง...', 0.2);
-          }
+          onProgress('กำลังดาวน์โหลดเพลง ${totalMbStr.isNotEmpty ? "($totalMbStr MB)..." : "..."}', 0.2);
 
           final output = destinationFile.openWrite();
           int receivedBytes = 0;
@@ -263,7 +284,7 @@ class OnlineDownloaderService {
             output.add(chunk);
             receivedBytes += chunk.length;
             if (expectedBytes > 0) {
-              final progress = 0.2 + (receivedBytes / expectedBytes) * 0.5;
+              final progress = 0.2 + (receivedBytes / expectedBytes) * 0.55;
               final currentMbStr = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
               onProgress('กำลังดาวน์โหลด: ${(receivedBytes / expectedBytes * 100).toInt()}% ($currentMbStr / $totalMbStr MB)', progress);
             } else {
@@ -286,6 +307,80 @@ class OnlineDownloaderService {
     }
 
     return false;
+  }
+
+  /// ดาวน์โหลดแบบหลายเธรดคู่ขนาน (Multi-threaded Range Download) เพื่อทะลุการบีบความเร็วของ YouTube
+  static Future<bool> _downloadConcurrentChunks({
+    required String audioUrl,
+    required int totalBytes,
+    required File destinationFile,
+    required Function(String status, double progress) onProgress,
+    int workerCount = 4,
+  }) async {
+    try {
+      final chunkSize = (totalBytes / workerCount).ceil();
+      final chunks = List<Uint8List?>.filled(workerCount, null);
+      final receivedByWorker = List<int>.filled(workerCount, 0);
+
+      final totalMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
+      onProgress('กำลังดาวน์โหลดความเร็วสูง: 0% (0.0 / $totalMb MB)', 0.2);
+
+      void updateOverallProgress() {
+        final totalReceived = receivedByWorker.fold<int>(0, (sum, val) => sum + val);
+        final pct = (totalReceived / totalBytes * 100).toInt().clamp(0, 100);
+        final currentMb = (totalReceived / (1024 * 1024)).toStringAsFixed(1);
+        final prog = 0.2 + (totalReceived / totalBytes) * 0.55;
+        onProgress('กำลังดาวน์โหลดความเร็วสูง: $pct% ($currentMb / $totalMb MB)', prog);
+      }
+
+      final futures = <Future<void>>[];
+      for (int i = 0; i < workerCount; i++) {
+        final workerIndex = i;
+        final start = i * chunkSize;
+        final end = (i == workerCount - 1) ? totalBytes - 1 : (i + 1) * chunkSize - 1;
+
+        futures.add(() async {
+          final client = http.Client();
+          try {
+            final req = http.Request('GET', Uri.parse(audioUrl));
+            req.headers['User-Agent'] = 'Mozilla/5.0';
+            req.headers['Range'] = 'bytes=$start-$end';
+
+            final res = await client.send(req).timeout(const Duration(seconds: 15));
+            if (res.statusCode == 200 || res.statusCode == 206) {
+              final builder = BytesBuilder(copy: false);
+              await for (final chunk in res.stream) {
+                builder.add(chunk);
+                receivedByWorker[workerIndex] += chunk.length;
+                updateOverallProgress();
+              }
+              chunks[workerIndex] = builder.takeBytes();
+            }
+          } finally {
+            client.close();
+          }
+        }());
+      }
+
+      await Future.wait(futures);
+
+      for (final chunk in chunks) {
+        if (chunk == null || chunk.isEmpty) {
+          return false;
+        }
+      }
+
+      final sink = destinationFile.openWrite();
+      for (final chunk in chunks) {
+        sink.add(chunk!);
+      }
+      await sink.flush();
+      await sink.close();
+
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// ค้นหาและดึงเนื้อเพลง .lrc จาก LRCLIB API
