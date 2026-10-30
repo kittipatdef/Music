@@ -14,24 +14,20 @@ class TrackMeta {
   final String artist;
   final String? coverUrl;
   final String youtubeVideoId;
-  final String? directStreamUrl;
-  final int? streamBytes;
 
   TrackMeta({
     required this.title,
     required this.artist,
     this.coverUrl,
     required this.youtubeVideoId,
-    this.directStreamUrl,
-    this.streamBytes,
   });
 }
 
-/// Service สำหรับดาวน์โหลดเพลงจาก YouTube พร้อมดึงเนื้อเพลงซิงค์ .lrc ด้วยความเร็วสูง
+/// Service สำหรับดาวน์โหลดเพลงจาก YouTube พร้อมดึงเนื้อเพลงซิงค์ .lrc ด้วยความเร็วสูงพิเศษ
 class OnlineDownloaderService {
   static final YoutubeExplode _yt = YoutubeExplode();
 
-  /// รายชื่อ Invidious API instances ความเร็วสูงที่มีระบบ PO Token สำเร็จรูป
+  /// รายชื่อ Invidious API instances สำหรับสำรองข้อมูล Metadata เมื่อ YouTube ติด rate limit
   static const List<String> _invidiousInstances = [
     'https://yt.chocolatemoo53.com',
     'https://inv.nadeko.net',
@@ -51,7 +47,7 @@ class OnlineDownloaderService {
     return match?.group(1);
   }
 
-  /// ดึงข้อมูล Metadata จากลิงก์ YouTube
+  /// ดึงข้อมูล Metadata จากลิงก์ YouTube อย่างรวดเร็ว
   static Future<TrackMeta> extractMetadata(String url) async {
     var cleanUrl = url.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
@@ -63,7 +59,30 @@ class OnlineDownloaderService {
       throw Exception('ลิงก์ YouTube ไม่ถูกต้อง ไม่พบรหัสวิดีโอ');
     }
 
-    // 1. ดึงข้อมูลและลิงก์สตรีมผ่าน Invidious API ก่อน
+    // 1. ดึงข้อมูลจาก YouTube Explode โดยตรงก่อน (เร็วที่สุดและสดใหม่)
+    try {
+      final video = await _yt.videos.get(videoId).timeout(const Duration(seconds: 5));
+      final title = cleanSongTitle(video.title);
+      final artist = video.author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim();
+      final coverUrl = video.thumbnails.highResUrl;
+
+      return TrackMeta(
+        title: title,
+        artist: artist.isNotEmpty ? artist : 'Unknown Artist',
+        coverUrl: coverUrl,
+        youtubeVideoId: video.id.value,
+      );
+    } catch (e) {
+      final str = e.toString().toLowerCase();
+      if (str.contains('socket') || str.contains('failed host lookup')) {
+        throw Exception('ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบการเชื่อมต่อของคุณ');
+      }
+      if (str.contains('unavailable') || str.contains('not found')) {
+        throw Exception('วิดีโอนี้ไม่พร้อมใช้งาน (อาจถูกลบหรือเป็นวิดีโอส่วนตัว)');
+      }
+    }
+
+    // 2. หาก YouTube ติด Rate Limit ให้ดึงข้อมูลผ่าน Invidious API สำรอง
     for (final base in _invidiousInstances) {
       try {
         final res = await http.get(Uri.parse('$base/api/v1/videos/$videoId')).timeout(const Duration(seconds: 4));
@@ -77,69 +96,25 @@ class OnlineDownloaderService {
             coverUrl = thumbnails.last['url'] as String?;
           }
 
-          final formats = (data['adaptiveFormats'] as List?)
-              ?.where((f) => (f['type'] as String? ?? '').startsWith('audio/'))
-              .toList();
-
-          String? streamUrl;
-          int? totalBytes;
-
-          if (formats != null && formats.isNotEmpty) {
-            formats.sort((a, b) {
-              final bitA = int.tryParse(a['bitrate']?.toString() ?? '0') ?? 0;
-              final bitB = int.tryParse(b['bitrate']?.toString() ?? '0') ?? 0;
-              return bitB.compareTo(bitA);
-            });
-            streamUrl = formats.first['url'] as String?;
-            totalBytes = int.tryParse(formats.first['clen']?.toString() ?? '');
-          }
-
           return TrackMeta(
             title: cleanSongTitle(rawTitle),
-            artist: author.replaceAll(' - Topic', '').trim(),
+            artist: author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim(),
             coverUrl: coverUrl,
             youtubeVideoId: videoId,
-            directStreamUrl: streamUrl,
-            streamBytes: totalBytes,
           );
         }
       } catch (_) {}
     }
 
-    // 2. หาก Invidious ไม่ตอบสนอง ให้ลองดึงผ่าน YouTube Explode (Fallback)
-    try {
-      final video = await _yt.videos.get(cleanUrl).timeout(const Duration(seconds: 6));
-      final title = cleanSongTitle(video.title);
-      final artist = video.author.replaceAll(' - Topic', '').trim();
-      final coverUrl = video.thumbnails.highResUrl;
-
-      return TrackMeta(
-        title: title,
-        artist: artist,
-        coverUrl: coverUrl,
-        youtubeVideoId: video.id.value,
-      );
-    } catch (e) {
-      final str = e.toString().toLowerCase();
-      if (str.contains('socket') || str.contains('failed host lookup')) {
-        throw Exception('ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบการเชื่อมต่อของคุณ');
-      }
-      if (str.contains('rate limit') || str.contains('requestlimitexceeded')) {
-        throw Exception('YouTube จำกัดการเชื่อมต่อชั่วคราว กรุณารอสักครู่แล้วลองใหม่');
-      }
-      if (str.contains('unavailable') || str.contains('not found')) {
-        throw Exception('วิดีโอนี้ไม่พร้อมใช้งาน (อาจถูกลบหรือเป็นวิดีโอส่วนตัว)');
-      }
-      throw Exception('ไม่สามารถดึงข้อมูล YouTube ได้: $e');
-    }
+    throw Exception('ไม่สามารถดึงข้อมูลเพลงได้ กรุณาตรวจสอบลิงก์แล้วลองใหม่อีกครั้ง');
   }
 
-  /// ดาวน์โหลดเพลงและเนื้อเพลงซิงค์ (.lrc)
+  /// ดาวน์โหลดเพลงและเนื้อเพลงซิงค์ (.lrc) ด้วยความเร็วสูงพิเศษ
   static Future<SongItem> downloadTrack(
     TrackMeta meta, {
     required Function(String status, double progress) onProgress,
   }) async {
-    onProgress('กำลังเตรียมดาวน์โหลดไฟล์เสียง...', 0.1);
+    onProgress('กำลังเตรียมดาวน์โหลดไฟล์เสียง...', 0.05);
 
     try {
       final docsDir = await getApplicationDocumentsDirectory();
@@ -149,22 +124,22 @@ class OnlineDownloaderService {
       }
 
       final safeFilename = sanitizeFilename('${meta.title} - ${meta.artist}');
-      final audioFilePath = '${downloadDir.path}/$safeFilename.mp3';
+      final audioFilePath = '${downloadDir.path}/$safeFilename.m4a';
       final audioFile = File(audioFilePath);
 
-      // สตรีมดาวน์โหลดไฟล์เสียงโดยตรงด้วยระบบ Multi-threaded Speed Boost
-      final success = await _streamDownloadAudio(
-        meta,
-        audioFile,
-        onProgress,
+      // 1. สตรีมดาวน์โหลดไฟล์เสียงความเร็วสูงแบบ Multi-threaded
+      final downloadOk = await _downloadBestAudioStream(
+        meta: meta,
+        destinationFile: audioFile,
+        onProgress: onProgress,
       );
 
-      if (!success) {
-        throw Exception('ไม่สามารถดาวน์โหลดไฟล์เสียงจากคลิปนี้ได้ กรุณาลองใหม่อีกครั้ง');
+      if (!downloadOk) {
+        throw Exception('ไม่สามารถดาวน์โหลดไฟล์เสียงได้ กรุณาลองใหม่อีกครั้ง');
       }
 
-      // ดึงเนื้อเพลงซิงค์ .lrc จาก LRCLIB
-      onProgress('กำลังค้นหาเนื้อเพลงซิงค์ (.lrc)...', 0.8);
+      // 2. ดึงเนื้อเพลงซิงค์ .lrc จาก LRCLIB
+      onProgress('กำลังค้นหาเนื้อเพลงซิงค์ (.lrc)...', 0.85);
       List<LyricEntry> lyrics = [];
       String? lrcFilePath;
 
@@ -173,18 +148,18 @@ class OnlineDownloaderService {
         lrcFilePath = '${downloadDir.path}/$safeFilename.lrc';
         await File(lrcFilePath).writeAsString(lrcContent);
         lyrics = LyricsParser.parse(lrcContent);
-        onProgress('พบเนื้อเพลงซิงค์สำเร็จ (${lyrics.length} บรรทัด)', 0.9);
+        onProgress('พบเนื้อเพลงซิงค์สำเร็จ (${lyrics.length} บรรทัด)', 0.92);
       } else {
-        onProgress('ไม่พบเนื้อเพลงซิงค์สำหรับเพลงนี้', 0.9);
+        onProgress('ไม่พบเนื้อเพลงซิงค์สำหรับเพลงนี้', 0.92);
       }
 
-      // ดาวน์โหลดภาพปกอัลบั้ม
+      // 3. ดาวน์โหลดภาพปกอัลบั้ม
       Uint8List? coverBytes;
       if (meta.coverUrl != null && meta.coverUrl!.isNotEmpty) {
-        onProgress('กำลังโหลดภาพปกอัลบั้ม...', 0.95);
+        onProgress('กำลังโหลดภาพปกอัลบั้ม...', 0.96);
         try {
           final imgRes = await http.get(Uri.parse(meta.coverUrl!)).timeout(
-                const Duration(seconds: 8),
+                const Duration(seconds: 6),
               );
           if (imgRes.statusCode == 200) {
             coverBytes = imgRes.bodyBytes;
@@ -217,99 +192,86 @@ class OnlineDownloaderService {
     }
   }
 
-  /// สตรีมดาวน์โหลดไฟล์เสียงด้วยระบบ Multi-threaded Range Requests เพื่อความเร็วสูงสุด (ไม่โดนจำกัดความเร็ว)
-  static Future<bool> _streamDownloadAudio(
-    TrackMeta meta,
-    File destinationFile,
-    Function(String status, double progress) onProgress,
-  ) async {
-    // 1. ถ้ามี Direct Stream URL และทราบขนาดไฟล์ ให้ใช้ดาวน์โหลดหลายเธรดคู่ขนานทันที (เร็วขึ้นเกือบ 100 เท่า)
-    if (meta.directStreamUrl != null &&
-        meta.directStreamUrl!.isNotEmpty &&
-        meta.streamBytes != null &&
-        meta.streamBytes! > 0) {
-      final multiThreadOk = await _downloadConcurrentChunks(
-        audioUrl: meta.directStreamUrl!,
-        totalBytes: meta.streamBytes!,
-        destinationFile: destinationFile,
-        onProgress: onProgress,
-      );
-      if (multiThreadOk) {
-        return true;
+  /// ค้นหาและดาวน์โหลดสตรีมเสียงที่ดีที่สุด (Tag 18 MP4 AAC หรือ Audio-only พร้อมระบบ Fallback อัตโนมัติ)
+  static Future<bool> _downloadBestAudioStream({
+    required TrackMeta meta,
+    required File destinationFile,
+    required Function(String status, double progress) onProgress,
+  }) async {
+    // 1. ลองดาวน์โหลดจาก Video ID หลักก่อน
+    final ok = await _tryDownloadVideoId(
+      videoId: meta.youtubeVideoId,
+      destinationFile: destinationFile,
+      onProgress: onProgress,
+    );
+    if (ok) return true;
+
+    // 2. ถ้าคลิปหลักมีข้อจำกัดด้านลิขสิทธิ์ (เช่น VEVO หรือบล็อก Range) ให้ใช้ Smart Fallback
+    onProgress('กำลังค้นหาเวอร์ชันเสียงสำรองคุณภาพสูง...', 0.15);
+    try {
+      final query = '${meta.title} ${meta.artist} audio';
+      final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 5));
+      for (final result in searchResults.take(4)) {
+        if (result.id.value == meta.youtubeVideoId) continue;
+        final fallbackOk = await _tryDownloadVideoId(
+          videoId: result.id.value,
+          destinationFile: destinationFile,
+          onProgress: onProgress,
+        );
+        if (fallbackOk) return true;
       }
-    }
-
-    // 2. รายการ URL ที่จะลองดาวน์โหลดตามลำดับ
-    final candidateUrls = <String>[];
-    if (meta.directStreamUrl != null && meta.directStreamUrl!.isNotEmpty) {
-      candidateUrls.add(meta.directStreamUrl!);
-    }
-    for (final base in _invidiousInstances) {
-      candidateUrls.add('$base/latest_version?id=${meta.youtubeVideoId}&itag=140');
-      candidateUrls.add('$base/latest_version?id=${meta.youtubeVideoId}&itag=251');
-    }
-
-    for (final streamUrl in candidateUrls) {
-      try {
-        final client = http.Client();
-        final req = http.Request('GET', Uri.parse(streamUrl));
-        req.headers['User-Agent'] = 'Mozilla/5.0';
-
-        final streamedRes = await client.send(req).timeout(const Duration(seconds: 7));
-        if (streamedRes.statusCode == 200 || streamedRes.statusCode == 206) {
-          final expectedBytes = streamedRes.contentLength ?? meta.streamBytes ?? 0;
-
-          // ถ้าทราบขนาดไฟล์ ให้ลองทำ multi-thread ดาวน์โหลดทันที
-          if (expectedBytes > 0 && streamUrl == meta.directStreamUrl) {
-            client.close();
-            final ok = await _downloadConcurrentChunks(
-              audioUrl: streamUrl,
-              totalBytes: expectedBytes,
-              destinationFile: destinationFile,
-              onProgress: onProgress,
-            );
-            if (ok) return true;
-          }
-
-          final totalMbStr = expectedBytes > 0
-              ? (expectedBytes / (1024 * 1024)).toStringAsFixed(1)
-              : '';
-
-          onProgress('กำลังดาวน์โหลดเพลง ${totalMbStr.isNotEmpty ? "($totalMbStr MB)..." : "..."}', 0.2);
-
-          final output = destinationFile.openWrite();
-          int receivedBytes = 0;
-
-          await for (final chunk in streamedRes.stream) {
-            output.add(chunk);
-            receivedBytes += chunk.length;
-            if (expectedBytes > 0) {
-              final progress = 0.2 + (receivedBytes / expectedBytes) * 0.55;
-              final currentMbStr = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-              onProgress('กำลังดาวน์โหลด: ${(receivedBytes / expectedBytes * 100).toInt()}% ($currentMbStr / $totalMbStr MB)', progress);
-            } else {
-              final currentMbStr = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-              onProgress('กำลังดาวน์โหลด: $currentMbStr MB', 0.45);
-            }
-          }
-
-          await output.flush();
-          await output.close();
-          client.close();
-
-          if (receivedBytes > 10000) {
-            return true;
-          }
-        } else {
-          client.close();
-        }
-      } catch (_) {}
-    }
+    } catch (_) {}
 
     return false;
   }
 
-  /// ดาวน์โหลดแบบหลายเธรดคู่ขนาน (Multi-threaded Range Download) เพื่อทะลุการบีบความเร็วของ YouTube
+  /// พยายามดึง Manifest และสตรีมดาวน์โหลดจาก Video ID ที่ระบุ
+  static Future<bool> _tryDownloadVideoId({
+    required String videoId,
+    required File destinationFile,
+    required Function(String status, double progress) onProgress,
+  }) async {
+    try {
+      final manifest = await _yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 6));
+
+      // ลำดับสตรีมที่ต้องการ:
+      // Priority 1: Tag 18 (MP4 360p พร้อมเสียง AAC) - YouTube ไม่บีบความเร็ว และไม่บล็อก Range requests!
+      // Priority 2: Audio-only bitrate สูงสุด
+      final candidateStreams = <StreamInfo>[];
+      final tag18 = manifest.muxed.where((s) => s.tag == 18).firstOrNull;
+      if (tag18 != null) candidateStreams.add(tag18);
+
+      final audioOnly = manifest.audioOnly.withHighestBitrate();
+      candidateStreams.add(audioOnly);
+
+      for (final stream in candidateStreams) {
+        final streamUrl = stream.url.toString();
+        final totalBytes = stream.size.totalBytes;
+
+        // 1. ลองดาวน์โหลดแบบ Multi-threaded Range Requests (4 เธรดคู่ขนาน โหลดเสร็จใน 1-2 วินาที)
+        final multiOk = await _downloadConcurrentChunks(
+          audioUrl: streamUrl,
+          totalBytes: totalBytes,
+          destinationFile: destinationFile,
+          onProgress: onProgress,
+        );
+        if (multiOk) return true;
+
+        // 2. ถ้า Range ถูกบล็อก ให้ลองสตรีมแบบ Single Stream ปกติ
+        final singleOk = await _downloadSingleStream(
+          audioUrl: streamUrl,
+          totalBytes: totalBytes,
+          destinationFile: destinationFile,
+          onProgress: onProgress,
+        );
+        if (singleOk) return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  /// ดาวน์โหลดความเร็วสูงแบบ 4 เธรดคู่ขนาน (Multi-threaded Range Requests)
   static Future<bool> _downloadConcurrentChunks({
     required String audioUrl,
     required int totalBytes,
@@ -317,20 +279,22 @@ class OnlineDownloaderService {
     required Function(String status, double progress) onProgress,
     int workerCount = 4,
   }) async {
+    if (totalBytes <= 0) return false;
+
     try {
       final chunkSize = (totalBytes / workerCount).ceil();
       final chunks = List<Uint8List?>.filled(workerCount, null);
       final receivedByWorker = List<int>.filled(workerCount, 0);
 
       final totalMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
-      onProgress('กำลังดาวน์โหลดความเร็วสูง: 0% (0.0 / $totalMb MB)', 0.2);
+      onProgress('กำลังดาวน์โหลด: 0% (0.0 / $totalMb MB)', 0.1);
 
       void updateOverallProgress() {
         final totalReceived = receivedByWorker.fold<int>(0, (sum, val) => sum + val);
         final pct = (totalReceived / totalBytes * 100).toInt().clamp(0, 100);
         final currentMb = (totalReceived / (1024 * 1024)).toStringAsFixed(1);
-        final prog = 0.2 + (totalReceived / totalBytes) * 0.55;
-        onProgress('กำลังดาวน์โหลดความเร็วสูง: $pct% ($currentMb / $totalMb MB)', prog);
+        final prog = 0.1 + (totalReceived / totalBytes) * 0.70;
+        onProgress('กำลังดาวน์โหลด: $pct% ($currentMb / $totalMb MB)', prog);
       }
 
       final futures = <Future<void>>[];
@@ -346,7 +310,7 @@ class OnlineDownloaderService {
             req.headers['User-Agent'] = 'Mozilla/5.0';
             req.headers['Range'] = 'bytes=$start-$end';
 
-            final res = await client.send(req).timeout(const Duration(seconds: 15));
+            final res = await client.send(req).timeout(const Duration(seconds: 12));
             if (res.statusCode == 200 || res.statusCode == 206) {
               final builder = BytesBuilder(copy: false);
               await for (final chunk in res.stream) {
@@ -383,6 +347,46 @@ class OnlineDownloaderService {
     }
   }
 
+  /// สตรีมดาวน์โหลดปกติ (Fallback ในกรณีที่เซิร์ฟเวอร์บล็อก Range requests)
+  static Future<bool> _downloadSingleStream({
+    required String audioUrl,
+    required int totalBytes,
+    required File destinationFile,
+    required Function(String status, double progress) onProgress,
+  }) async {
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', Uri.parse(audioUrl));
+      req.headers['User-Agent'] = 'Mozilla/5.0';
+
+      final res = await client.send(req).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200 || res.statusCode == 206) {
+        final output = destinationFile.openWrite();
+        int receivedBytes = 0;
+        final totalMbStr = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toStringAsFixed(1) : '';
+
+        await for (final chunk in res.stream) {
+          output.add(chunk);
+          receivedBytes += chunk.length;
+          if (totalBytes > 0) {
+            final progress = 0.1 + (receivedBytes / totalBytes) * 0.70;
+            final currentMbStr = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+            onProgress('กำลังดาวน์โหลด: ${(receivedBytes / totalBytes * 100).toInt()}% ($currentMbStr / $totalMbStr MB)', progress);
+          }
+        }
+
+        await output.flush();
+        await output.close();
+        return receivedBytes > 10000;
+      }
+    } catch (_) {
+      return false;
+    } finally {
+      client.close();
+    }
+    return false;
+  }
+
   /// ค้นหาและดึงเนื้อเพลง .lrc จาก LRCLIB API
   static Future<String?> _fetchSyncedLyricsFromLrclib(
       String title, String artist) async {
@@ -390,7 +394,7 @@ class OnlineDownloaderService {
       final directUri = Uri.parse(
         'https://lrclib.net/api/get?track_name=${Uri.encodeComponent(title)}&artist_name=${Uri.encodeComponent(artist)}',
       );
-      var response = await http.get(directUri).timeout(const Duration(seconds: 8));
+      var response = await http.get(directUri).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -403,7 +407,7 @@ class OnlineDownloaderService {
       final searchUri = Uri.parse(
         'https://lrclib.net/api/search?q=${Uri.encodeComponent('$title $artist')}',
       );
-      response = await http.get(searchUri).timeout(const Duration(seconds: 8));
+      response = await http.get(searchUri).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
         final List<dynamic> list = jsonDecode(response.body);
