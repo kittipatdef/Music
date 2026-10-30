@@ -238,6 +238,20 @@ class _DownloadDialogState extends State<DownloadDialog> {
               ),
             ),
           ),
+
+          if (_isLoading) ...[
+            const SizedBox(height: 10),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF94A3B8)),
+                label: const Text(
+                  'ยกเลิก / ปิดหน้าต่างนี้',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
