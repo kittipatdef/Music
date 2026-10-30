@@ -62,8 +62,23 @@ class OnlineDownloaderService {
     // 1. ดึงข้อมูลจาก YouTube Explode โดยตรงก่อน (เร็วที่สุดและสดใหม่)
     try {
       final video = await _yt.videos.get(videoId).timeout(const Duration(seconds: 5));
-      final title = cleanSongTitle(video.title);
-      final artist = video.author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim();
+      final cleanedTitle = cleanSongTitle(video.title);
+      var artist = video.author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim();
+      var title = cleanedTitle;
+
+      // ถ้าชื่อคลิปบน YouTube มีรูปแบบ "Artist - Title" หรือ "Artist – Title" ให้แยกเพลงและศิลปินออกจากกัน
+      if (cleanedTitle.contains(' - ') || cleanedTitle.contains(' – ')) {
+        final parts = cleanedTitle.contains(' - ') ? cleanedTitle.split(' - ') : cleanedTitle.split(' – ');
+        if (parts.length >= 2) {
+          final possibleArtist = parts[0].trim();
+          final possibleTitle = parts.sublist(1).join(' - ').trim();
+          if (possibleArtist.isNotEmpty && possibleTitle.isNotEmpty) {
+            artist = possibleArtist;
+            title = possibleTitle;
+          }
+        }
+      }
+
       final coverUrl = video.thumbnails.highResUrl;
 
       return TrackMeta(
@@ -96,9 +111,25 @@ class OnlineDownloaderService {
             coverUrl = thumbnails.last['url'] as String?;
           }
 
+          final cleanedTitle = cleanSongTitle(rawTitle);
+          var artist = author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim();
+          var title = cleanedTitle;
+
+          if (cleanedTitle.contains(' - ') || cleanedTitle.contains(' – ')) {
+            final parts = cleanedTitle.contains(' - ') ? cleanedTitle.split(' - ') : cleanedTitle.split(' – ');
+            if (parts.length >= 2) {
+              final possibleArtist = parts[0].trim();
+              final possibleTitle = parts.sublist(1).join(' - ').trim();
+              if (possibleArtist.isNotEmpty && possibleTitle.isNotEmpty) {
+                artist = possibleArtist;
+                title = possibleTitle;
+              }
+            }
+          }
+
           return TrackMeta(
-            title: cleanSongTitle(rawTitle),
-            artist: author.replaceAll(' - Topic', '').replaceAll('VEVO', '').trim(),
+            title: title,
+            artist: artist.isNotEmpty ? artist : 'Unknown Artist',
             coverUrl: coverUrl,
             youtubeVideoId: videoId,
           );
@@ -387,15 +418,27 @@ class OnlineDownloaderService {
     return false;
   }
 
-  /// ค้นหาและดึงเนื้อเพลง .lrc จาก LRCLIB API
+  static const Map<String, String> _lrclibHeaders = {
+    'User-Agent': 'OfflineMusicPlayer/1.0 (https://github.com/kittipatdef/Music)',
+  };
+
+  /// ค้นหาและดึงเนื้อเพลง .lrc จาก LRCLIB API ด้วย User-Agent ที่ถูกต้องและระบบค้นหาแบบละเอียด
   static Future<String?> _fetchSyncedLyricsFromLrclib(
       String title, String artist) async {
+    // กำจัดคำขยะ เช่น (feat. ...), ft. ..., etc.
+    final cleanTitle = title
+        .replaceAll(RegExp(r'\s*\(?(feat\.|ft\.|with)\s+.*?\)?', caseSensitive: false), '')
+        .trim();
+    final cleanArtist = artist
+        .replaceAll(RegExp(r'\s*\(?(feat\.|ft\.|with)\s+.*?\)?', caseSensitive: false), '')
+        .trim();
+
+    // 1. ลองแบบ Exact Match ด้วยชื่อคลีน
     try {
       final directUri = Uri.parse(
-        'https://lrclib.net/api/get?track_name=${Uri.encodeComponent(title)}&artist_name=${Uri.encodeComponent(artist)}',
+        'https://lrclib.net/api/get?track_name=${Uri.encodeComponent(cleanTitle)}&artist_name=${Uri.encodeComponent(cleanArtist)}',
       );
-      var response = await http.get(directUri).timeout(const Duration(seconds: 6));
-
+      final response = await http.get(directUri, headers: _lrclibHeaders).timeout(const Duration(seconds: 6));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final synced = data['syncedLyrics'] as String?;
@@ -403,12 +446,14 @@ class OnlineDownloaderService {
           return synced;
         }
       }
+    } catch (_) {}
 
+    // 2. ลองแบบ Search ด้วย $cleanTitle $cleanArtist
+    try {
       final searchUri = Uri.parse(
-        'https://lrclib.net/api/search?q=${Uri.encodeComponent('$title $artist')}',
+        'https://lrclib.net/api/search?q=${Uri.encodeComponent('$cleanTitle $cleanArtist')}',
       );
-      response = await http.get(searchUri).timeout(const Duration(seconds: 6));
-
+      final response = await http.get(searchUri, headers: _lrclibHeaders).timeout(const Duration(seconds: 6));
       if (response.statusCode == 200) {
         final List<dynamic> list = jsonDecode(response.body);
         for (var item in list) {
@@ -419,6 +464,24 @@ class OnlineDownloaderService {
         }
       }
     } catch (_) {}
+
+    // 3. ลองแบบ Search ด้วย $cleanTitle อย่างเดียว
+    try {
+      final searchUri = Uri.parse(
+        'https://lrclib.net/api/search?q=${Uri.encodeComponent(cleanTitle)}',
+      );
+      final response = await http.get(searchUri, headers: _lrclibHeaders).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final List<dynamic> list = jsonDecode(response.body);
+        for (var item in list) {
+          final synced = item['syncedLyrics'] as String?;
+          if (synced != null && synced.trim().isNotEmpty) {
+            return synced;
+          }
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 
