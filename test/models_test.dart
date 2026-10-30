@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:personal_offline_music_player/models/custom_playlist.dart' if (dart.library.io) 'package:personal_offline_music_player/models/playlist_model.dart';
+import 'package:personal_offline_music_player/models/playlist_model.dart';
 import 'package:personal_offline_music_player/models/lyric_entry.dart';
 import 'package:personal_offline_music_player/models/song_item.dart';
 
